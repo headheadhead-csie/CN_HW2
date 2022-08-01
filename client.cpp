@@ -28,18 +28,14 @@ public:
         close(sockfd);
     }
     void run(){
+        sprintf(c->buffer, "b08902062_%d_client_folder", id);
+        mkdir(c->buffer, 0755);
+        chdir(c->buffer);
         init_connection(c);
 
         // First, we have to send ID to the server
         // The server shouldn't crash, there is no need to handle
         // such cases.
-        sprintf(c->client_id, "%d", id);
-        c->set_write_message(strlen(c->client_id)+1, text, c->client_id);
-        fprintf(stderr, "1\n");
-        while (!c->is_confirmed) {
-            c->send_and_confirm();
-        }
-        
         fprintf(stderr, "2\n");
         c->set_read_message(text);
         while(!c->is_confirmed) {
@@ -48,6 +44,7 @@ public:
         }
         fprintf(stderr, "name: %s\n", c->read_buffer);
         strcpy(c->name, c->read_buffer); 
+        c->name_len = strlen(c->name) + 1;
 
         while (true) {
             run_none(c);
@@ -62,15 +59,18 @@ private:
     struct sockaddr_in addr;
     Connection *c;
     static void init_connection(Connection *c){
-        c->routine = run_none;
-        c->action = transmit;
-        c->identity = client;
+        c->action = receive;
         c->is_confirmed = false;
-        c->write_len = c->confirm_len = c->read_len = c->read_byte = c->write_byte = 0;
+        c->routine = run_none;
+        c->need_confirm = false;
+        c->output_len = c->output_ptr = c->buffer_len = c->file_name_len = 0;
     }
     static void run_none(Connection *c){
         fprintf(stderr, "run_none\n");
-        scanf("%s", c->command_buffer);
+
+        fgets(c->command_buffer, BUFF_SIZE, stdin);
+        c->command_buffer[strlen(c->command_buffer)-1] = '\0';
+        init_connection(c);
         fprintf(stderr, "run_none end\n");
     }
     static void run_ls(Connection *c){
@@ -78,17 +78,49 @@ private:
         int read_byte;
 
         c->set_read_message(data);
-        while(!c->is_confirmed) {
+        while (!c->is_confirmed) {
             read_byte = c->read_and_confirm();
-            write(1, c->read_buffer, read_byte);
+            output_data(c, stdout, read_byte);
         }
         fprintf(stderr, "run_ls end\n");
         return;
     }
-    static void run_put(Connection *c){
+    static void run_get(Connection *c){
+        fprintf(stderr, "%s\n", __func__);
+
+        int read_byte;
+        get_next_file_name(c);
+        fprintf(stderr, "%s\n", c->command_token);
+        while (c->command_token) {
+            read_byte = 0;
+            c->set_read_message(text);
+
+            while (!c->is_confirmed) {
+                read_byte += c->read_and_confirm(true, true, true);
+            }
+            strcpy(c->file_name, c->read_buffer);
+            c->file_name_len = read_byte;
+            if (c->file_name_len == 1) {
+                get_next_file_name(c);
+                continue;
+            }
+
+            c->fp = fopen(c->file_name, "w");
+            c->set_read_message(data);
+            while (!c->is_confirmed) {
+                read_byte = c->read_and_confirm(true, true, true);
+                output_data(c, c->fp, read_byte);
+            }
+            fclose(c->fp);
+            c->buffer_len = c->output_ptr = c->output_len = 0;
+            get_next_file_name(c);
+        }
+
+        c->fp = NULL;
+        fprintf(stderr, "%s end\n", __func__);
         return;
     }
-    static void run_get(Connection *c){
+    static void run_put(Connection *c){
         return;
     }
     static void run_play(Connection *c){
@@ -98,7 +130,11 @@ private:
         c->command_len = strlen(c->command_buffer)+1;
         c->set_write_message(c->command_len, text, c->command_buffer);
         init_command_token(c);
-        if (strncmp(c->command_token, "ls", 2) == 0) {
+        fprintf(stderr, "command_token: %s\n", c->command_token);
+        if (c->command_token == NULL) {
+            return -1; 
+        }
+        else if (strncmp(c->command_token, "ls", 2) == 0) {
             c->routine = &run_ls;
         } else if (strncmp(c->command_token, "put", 3) == 0) {
             c->routine = &run_put;

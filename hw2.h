@@ -35,29 +35,32 @@ enum Command{_none, _ls, _put, _get, _play};
 enum Identity{server, client};
 class Connection{
 public:
-    int command_len,
+    int buffer_len,
+        command_len,
         confirm_len,
         data_size,
         file_name_len,
-        id_len,
         name_len,
+        output_ptr,
+        output_len,
         read_byte,
         read_len,
         sockfd,
         write_len,
         write_byte;
-    char buffer[BUFF_SIZE],
+    char buffer[2 * BUFF_SIZE],
          command_buffer[2 * BUFF_SIZE],
          confirm_buffer[NAME_SIZE],
-         client_id[NAME_SIZE],
          directory[BUFF_SIZE],
          file_name[BUFF_SIZE],
          name[NAME_SIZE],
+         output_buffer[2 * BUFF_SIZE],
          read_buffer[2 * BUFF_SIZE],
          write_buffer[2 * BUFF_SIZE];
     char *command_token,
          *command_save_ptr;
-    bool is_confirmed;
+    bool is_confirmed,
+         need_confirm;
     FILE* fp;
     DIR* dp;
     struct dirent *dir;
@@ -87,7 +90,7 @@ public:
     }
     int send_and_confirm(bool readable = true, bool writable = true, bool need_confirm = false){
         int tmp = 0;
-        if (writable) {
+        if (writable && write_len != 0) {
             tmp = send(sockfd, write_buffer+write_byte, write_len-write_byte, MSG_NOSIGNAL);
             fprintf(stderr, "tmp: %d\n", tmp);
             if (tmp <= 0){
@@ -100,14 +103,13 @@ public:
                     set_read_message(content);
                 } else {
                     is_confirmed = true;
-                    return tmp;
                 }
+                return tmp;
             }
         }
         
         // confirm stage
         if (readable && write_len == 0 && need_confirm) {
-            fprintf(stderr, "send confirm stage\n");
             tmp = read(sockfd, read_buffer, BUFF_SIZE);
             if (tmp > 0){
                 is_confirmed = true;
@@ -122,27 +124,24 @@ public:
         fprintf(stderr, "%s\n", __func__);
         int tmp = 0, start;
         char tmp_buf[NAME_SIZE];
-        if (readable) {
+        if (readable && write_len == 0) {
             tmp = read(sockfd, read_buffer, BUFF_SIZE);
             if (tmp <= 0) {
                 return -1;
             }
             read_byte += tmp;
             if (content == text) {
-                fprintf(stderr, "read_buffer:%s\n", read_buffer);
-                fprintf(stderr, "read_byte:%d, read_len:%d\n", read_byte, read_len);
                 if (read_buffer[read_byte-1] == '\0') {
                     if (need_confirm) {
-                        buffer[0] = '\0';
-                        set_write_message(1, content, buffer);
+                        tmp_buf[0] = '\0';
+                        set_write_message(1, content, tmp_buf);
                     } else {
                         is_confirmed = true;
-                        return tmp;
                     }
+                    return tmp;
                 }
             }
             if (content == data) {
-                data_size -= tmp;
                 // need to trace the last NAME_SIZE chars
                 if (read_byte >= NAME_SIZE) {
                     memcpy(confirm_buffer, read_buffer + read_byte-NAME_SIZE, NAME_SIZE);
@@ -153,23 +152,25 @@ public:
                 } else {
                     start = read_byte + confirm_len - NAME_SIZE;
                     memcpy(tmp_buf, confirm_buffer + start , confirm_len - start);
-                    memcpy(tmp_buf, confirm_buffer + confirm_len - start, read_byte);
+                    memcpy(tmp_buf, read_buffer, read_byte);
                     memcpy(confirm_buffer, tmp_buf, NAME_SIZE);
                     confirm_len = NAME_SIZE;
                 }
+                start = 0;
                 if (confirm_len >= name_len) {
                     start = confirm_len-name_len;
                 }
-                fprintf(stderr, "confirm: %s\n", confirm_buffer);
                 if (strncmp(confirm_buffer+start, name, name_len) == 0) {
+                    fprintf(stderr, "get name\n");
                     if (need_confirm) {
                         tmp_buf[0] = '\0';
-                        set_write_message(1, content, buffer);
+                        set_write_message(1, content, tmp_buf);
                     } else {
                         is_confirmed = true;
-                        return tmp;
                     }
+                    return tmp;
                 }
+                read_byte = 0;
             }
         }
 
@@ -206,15 +207,17 @@ public:
         }
     }
     inline void set_read_message(Content content){
-        this->write_len = this->write_byte = this->read_byte = 0;
         this->content = content;
         this->is_confirmed = false;
+        this->confirm_len = this->write_len = this->write_byte = this->read_byte = 0;
+        fprintf(stderr, "2\n");
         if (read_mask != NULL) {
             FD_SET(sockfd, read_mask);
         }
         if (write_mask != NULL) {
             FD_CLR(sockfd, write_mask);
         }
+        fprintf(stderr, "3\n");
     }
 };
 inline void init_command_token(Connection *c){
@@ -222,4 +225,14 @@ inline void init_command_token(Connection *c){
 }
 inline void get_next_file_name(Connection *c){
     c->command_token = strtok_r(NULL, " ", &c->command_save_ptr);
+}
+inline void output_data(Connection *c, FILE *fp, int read_byte){
+    for (int i = 0; i < read_byte; i++) {
+        c->buffer[(c->buffer_len++)%(2*BUFF_SIZE)] = c->read_buffer[i];
+    }
+    c->output_len = 0;
+    while (c->output_ptr + c->name_len < c->buffer_len) {
+        c->output_buffer[c->output_len++] = c->buffer[(c->output_ptr++)%(2*BUFF_SIZE)];
+    }
+    fwrite(c->output_buffer, sizeof(char), c->output_len, fp);
 }

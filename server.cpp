@@ -56,6 +56,8 @@ public:
             fcntl(server_sockfd, F_SETFL, flag | O_NONBLOCK);
         }
         while(true) {
+            read_byte = write_byte = 0;
+
             // Accept the client and get client file descriptor
             if ((client_sockfd = accept(server_sockfd, (struct sockaddr *)&client_addr, (socklen_t*)&client_addr_len)) < 0) {
                 if (errno != EAGAIN && errno != EWOULDBLOCK) {
@@ -70,7 +72,7 @@ public:
 
             memcpy(&mask_read_w, &mask_read_r, sizeof(fd_set));
             memcpy(&mask_write_w, &mask_write_r, sizeof(fd_set));
-            if (select(max_client_sockfd, &mask_read_w, &mask_write_w, NULL, NULL) < 0) {
+            if (select(max_client_sockfd+1, &mask_read_w, &mask_write_w, NULL, NULL) < 0) {
                 perror("select failed\n");
                 continue;
             }
@@ -93,9 +95,9 @@ public:
             fprintf(stderr, "writable:%d, readable:%d\n", writable, readable);
             fprintf(stderr, "content: %s\n", (c->content == text)? "text": "data");
             if (c->action == transmit) {
-                write_byte = c->send_and_confirm(readable, writable);
+                write_byte = c->send_and_confirm(readable, writable, c->need_confirm);
             } else if (c->action == receive) {
-                read_byte = c->read_and_confirm(readable, writable);
+                read_byte = c->read_and_confirm(readable, writable, c->need_confirm);
             }
             fprintf(stderr, "c write_len: %d, write_byte: %d\n", c->write_len, c->write_byte);
             fprintf(stderr, "read_byte: %d, write_byte: %d\n", read_byte, write_byte);
@@ -130,26 +132,31 @@ private:
 
     static void init_connection(Connection *c){
         c->action = receive;
-        c->file_name_len = 0;
         c->is_confirmed = false;
         c->routine = run_none;
+        c->need_confirm = false;
+        c->output_len = c->output_ptr = c->buffer_len = c->file_name_len = 0;
+        c->dir = NULL;
+        c->dp = NULL;
+        c->fp = NULL;
+        c->cap.release();
         c->set_read_message(text);
     }
     void add_client(int client_sockfd){
         Connection *c = new Connection(client_sockfd);
         snprintf(c->name, NAME_SIZE, "NeVeR_LosEs%d", rand());
-        c->action = receive;
+        c->action = transmit;
         c->content = text;
         c->file_name_len = 0;
         c->identity = server;
-        c->id_len = 0;
         c->routine = run_none;
         c->name_len = strlen(c->name)+1;
+        c->need_confirm = false;
         c->write_mask = &mask_write_r;
         c->read_mask = &mask_read_r;
-        c->set_read_message(text);
+        c->set_write_message(c->name_len, text, c->name);
         clients.push(c);
-        max_client_sockfd = max(client_sockfd+1, max_client_sockfd+1);
+        max_client_sockfd = max(client_sockfd, max_client_sockfd);
         return;
     }
     void delete_client(){
@@ -179,31 +186,13 @@ private:
         // update the state of c
         if (c->is_confirmed) {
             if (c->action == receive) {
-                if (c->id_len == 0) {      // receive client id
-                    memcpy(c->client_id , c->read_buffer,  c->read_byte);
-                    c->id_len = c->read_byte;
-                    c->set_write_message(c->name_len, text, c->name);
-                    strcpy(c->directory, "b08902062_");
-                    strcat(c->directory, c->client_id);
-                    strcat(c->directory, "_client_folder");
-                    fprintf(stderr, "directory: %s\n", c->directory);
-                    c->action = transmit;
-                    fprintf(stderr, "run_none end 1\n");
-                    return;
-                } else {                   // receive command
-                    memcpy(c->command_buffer, c->read_buffer, c->read_byte);
-                    c->command_len = c->read_byte;
-                    set_routine(c);
-                    setup_mission(c);
-                    fprintf(stderr, "run_none end 3\n");
-                    return;
-                }
-            }
-            if (c->action == transmit) {
-                fprintf(stderr, "run_none end 2\n");
+                memcpy(c->command_buffer, c->read_buffer, c->read_byte);
+                c->command_len = c->read_byte;
+                set_routine(c);
+                setup_mission(c);
+            } else if (c->action == transmit) {
                 c->set_read_message(text);
                 c->action = receive;
-                return;
             }
         }
         return;
@@ -214,7 +203,7 @@ private:
         // prepare_buffer
         if (c->action == transmit) {
             if (c->write_byte == c->write_len) {
-                c->write_byte = c->write_len = 0;
+                c->write_len = c->write_byte = 0;
             }
             while ((c->write_len < BUFF_SIZE) &&
                    ((c->dir = readdir(c->dp)) != NULL)) {
@@ -222,8 +211,9 @@ private:
                 sprintf(c->write_buffer + c->write_len, "%s\n", c->dir->d_name);
                 c->write_len += strlen(c->dir->d_name)+1;
             }
-            if (c->dir == NULL) {
+            if (c->dir == NULL && c->data_size != 0) {
                 sprintf(c->write_buffer+c->write_len, "%s", c->name);
+                c->write_len += c->name_len;
                 c->data_size = 0;
             }
         }
@@ -233,9 +223,63 @@ private:
             init_connection(c);
         }
     }
-    static void run_put(Connection *c){
-    }
     static void run_get(Connection *c){
+        fprintf(stderr, "%s\n", __func__);
+        // prepare_buffer
+        if (c->fp == NULL && c->file_name_len == 0) {
+            get_next_file_name(c);
+            if (c->command_token != NULL) {
+                strcpy(c->file_name, c->command_token);
+                c->fp = fopen(c->file_name, "r"); 
+            } else {
+                c->is_confirmed = true;
+            }
+        }
+        if (c->command_token != NULL) {
+            if (c->content == text && c->file_name_len == 0) { // transfer file name
+                c->file_name_len = strlen(c->command_token) + 1;
+                if (c->fp != NULL) {
+                    c->set_write_message(c->file_name_len, text, c->command_token);
+                } else { // no such file
+                    c->buffer[0] = '\0';
+                    c->set_write_message(1, text, c->buffer);
+                }
+                return;
+            } else if (c->content == data) { // transfer file content
+                if (c->write_byte == c->write_len){
+                    c->write_byte = 0;
+                    c->write_len = fread(c->write_buffer, sizeof(char), BUFF_SIZE, c->fp);
+                }
+                if (feof(c->fp) && c->data_size != 0) {
+                    sprintf(c->write_buffer+c->write_len, "%s", c->name);
+                    c->write_len += c->name_len;
+                    c->data_size = 0;
+                }
+            }
+        }
+        
+        // update the state of c
+        if (c->is_confirmed) {
+            if (c->content == text) {
+                if (c->command_token == NULL) {
+                    init_connection(c);
+                } else if (c->fp != NULL) {
+                    c->set_write_message(0, data, NULL);
+                } else {
+                    c->file_name_len = 0;
+                    c->set_write_message(0, text, NULL);
+                }
+            } else if (c->content == data) {
+                fclose(c->fp);
+                c->fp = NULL;
+                c->file_name_len = 0;
+                c->set_write_message(0, text, NULL);
+            }
+        }
+        fprintf(stderr, "%s end\n", __func__);
+        return;
+    }
+    static void run_put(Connection *c){
     }
     static void run_play(Connection *c){
     }
@@ -260,19 +304,20 @@ private:
         fprintf(stderr, "setup_mission\n");
 
         c->action = transmit;
-        c->set_write_message(0, data, NULL);
-        get_next_file_name(c);
         fprintf(stderr, "command_token:%s\n", c->command_token);
         if (c->routine == &run_ls) {
-           mkdir(c->directory, 0755);
-            c->dp = opendir(c->directory);
-            run_ls(c);
+            c->dp = opendir(".");
+            c->set_write_message(0, data, NULL);
         } else if (c->routine == &run_get) {
-            c->fp = fopen(c->command_token, "r");
+            c->fp = NULL;
+            c->file_name_len = 0;
+            c->need_confirm = true;
+            c->set_write_message(0, text, NULL);
         } else if (c->routine == &run_put) {
-            c->fp = fopen(c->command_token, "w");
+            c->fp = NULL;
+            c->file_name_len = 0;
         } else if (c->routine == &run_play) {
-            c->cap.open(c->command_token);
+            c->cap.release();
         }
         fprintf(stderr, "setup_mission end\n");
     }
