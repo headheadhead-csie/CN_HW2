@@ -199,6 +199,7 @@ private:
     }
     static void run_ls(Connection *c){
         fprintf(stderr, "%s\n", __func__);
+        char tmp_buf[1] = {'\0'};
 
         // prepare_buffer
         if (c->action == transmit) {
@@ -218,15 +219,18 @@ private:
             }
         }
         
-        // update the state of c
-        if (c->is_confirmed) {
-            init_connection(c);
+        if (!c->is_confirmed) {
+            return;
         }
+        // update the state of c
+        init_connection(c);
+        return;
     }
     static void run_get(Connection *c){
         fprintf(stderr, "%s\n", __func__);
+        char tmp_buf[1] = {'\0'};
         // prepare_buffer
-        if (c->fp == NULL && c->file_name_len == 0) {
+        if (c->fp == NULL && c->file_name_len == 0 && c->need_confirm) {
             get_next_file_name(c);
             if (c->command_token != NULL) {
                 strcpy(c->file_name, c->command_token);
@@ -241,12 +245,10 @@ private:
                 if (c->fp != NULL) {
                     c->set_write_message(c->file_name_len, text, c->command_token);
                 } else { // no such file
-                    c->buffer[0] = '\0';
-                    c->set_write_message(1, text, c->buffer);
+                    c->set_write_message(1, text, tmp_buf);
                 }
-                return;
             } else if (c->content == data) { // transfer file content
-                if (c->write_byte == c->write_len){
+                if (c->write_byte == c->write_len) {
                     c->write_byte = 0;
                     c->write_len = fread(c->write_buffer, sizeof(char), BUFF_SIZE, c->fp);
                 }
@@ -257,29 +259,95 @@ private:
                 }
             }
         }
-        
+
+        if (!c->is_confirmed) {
+            return;
+        }
         // update the state of c
-        if (c->is_confirmed) {
-            if (c->content == text) {
-                if (c->command_token == NULL) {
-                    init_connection(c);
-                } else if (c->fp != NULL) {
-                    c->set_write_message(0, data, NULL);
-                } else {
-                    c->file_name_len = 0;
-                    c->set_write_message(0, text, NULL);
-                }
-            } else if (c->content == data) {
-                fclose(c->fp);
-                c->fp = NULL;
+        if (c->content == text) {
+            if (!c->need_confirm) {
+                init_connection(c);
+            } else if (c->command_token == NULL) {
+                c->set_write_message(1, text, tmp_buf);
+                c->need_confirm = false;
+            } else if (c->fp != NULL) { // there is a file
+                c->set_write_message(0, data, NULL);
+            } else {                    // there is no file
                 c->file_name_len = 0;
                 c->set_write_message(0, text, NULL);
             }
+        } else if (c->content == data) {
+            fclose(c->fp);
+            c->fp = NULL;
+            c->file_name_len = 0;
+            c->set_write_message(0, text, NULL);
         }
         fprintf(stderr, "%s end\n", __func__);
         return;
     }
     static void run_put(Connection *c){
+        fprintf(stderr, "%s\n", __func__);
+        char tmp_buf[1] = {'\0'};
+        // prepare buffer
+        if (c->action == transmit && !c->is_confirmed) {
+            fprintf(stderr, "write_len: %d\n", c->write_len);
+            fprintf(stderr, "put is_confirmed: %d\n", c->is_confirmed);
+            c->set_write_message(1, text, tmp_buf);
+            fprintf(stderr, "file_name: %s\n", c->command_token);
+        } else if (c->action == receive) {
+            if (c->content == text) {
+                if (c->command_token == NULL) {
+                    c->is_confirmed = true; 
+                }
+            } else if (c->content == data) {
+                fprintf(stderr, "read_byte: %d\n", c->read_byte);
+                fprintf(stderr, "name_len: %d\n", c->name_len);
+                output_data(c, c->fp, c->read_byte);
+            }
+        }
+
+        if (!c->is_confirmed) {
+            return;
+        }
+        // update the state of c
+        if (c->action == receive) {
+            if (c->content == text) {
+                c->file_name_len = strlen(c->read_buffer) + 1;
+                fprintf(stderr, "file_name_len: %d\n", c->file_name_len);
+                if (c->file_name_len == 1) {
+                    c->action = receive;
+                    get_next_file_name(c);
+                    if (c->command_token == NULL) {
+                        init_connection(c);
+                    } else {
+                        c->set_read_message(text);
+                    }
+                } else {
+                    strcpy(c->file_name, c->read_buffer);
+                    c->fp = fopen(c->file_name, "w");
+                    fprintf(stderr, "fp: %p\n", c->fp);
+                    c->buffer_len = c->output_len = c->output_ptr = 0;
+                    c->set_read_message(data);
+                }
+            } else if (c->content == data) {
+                fclose(c->fp);
+                c->action = receive;
+                get_next_file_name(c);
+                if (c->command_token == NULL) {
+                    init_connection(c);
+                } else {
+                    c->set_read_message(text);
+                }
+            }
+        } else if (c->action == transmit) {
+            if (c->write_len != 0) {
+                c->action = receive;
+                c->need_confirm = true;
+                c->set_read_message(text);
+            }
+        }
+        fprintf(stderr, "%s end\n", __func__);
+        return;
     }
     static void run_play(Connection *c){
     }
@@ -316,6 +384,9 @@ private:
         } else if (c->routine == &run_put) {
             c->fp = NULL;
             c->file_name_len = 0;
+            c->need_confirm = false;
+            get_next_file_name(c);
+            c->set_write_message(0, text, NULL);
         } else if (c->routine == &run_play) {
             c->cap.release();
         }
@@ -328,7 +399,6 @@ int main(int argc, char *argv[]){
         fprintf(stderr, "usage: server ${port}\n");
         return 0;
     }
-
     srand(time(NULL));
     port = atoi(argv[1]);
 

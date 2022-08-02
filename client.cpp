@@ -28,9 +28,10 @@ public:
         close(sockfd);
     }
     void run(){
-        sprintf(c->buffer, "b08902062_%d_client_folder", id);
-        mkdir(c->buffer, 0755);
-        chdir(c->buffer);
+        char tmp_buf[BUFF_SIZE];
+        sprintf(tmp_buf, "b08902062_%d_client_folder", id);
+        mkdir(tmp_buf, 0755);
+        chdir(tmp_buf);
         init_connection(c);
 
         // First, we have to send ID to the server
@@ -115,12 +116,60 @@ private:
             c->buffer_len = c->output_ptr = c->output_len = 0;
             get_next_file_name(c);
         }
+        c->set_read_message(text);
+        while (!c->is_confirmed) {
+            c->read_and_confirm();
+        }
 
         c->fp = NULL;
         fprintf(stderr, "%s end\n", __func__);
         return;
     }
     static void run_put(Connection *c){
+        fprintf(stderr, "%s\n", __func__);
+        char tmp_buf[1] = {'\0'};
+        c->set_read_message(text);
+        while (!c->is_confirmed) {
+            c->read_and_confirm();
+        }
+        fprintf(stderr, "phase 1 end\n");
+
+        get_next_file_name(c);
+        while (c->command_token) {
+            strcpy(c->file_name, c->command_token);
+            c->file_name_len = strlen(c->file_name) + 1;
+            c->fp = fopen(c->file_name, "r");
+            if (c->fp == NULL) {
+                c->set_write_message(1, text, tmp_buf);
+            } else {
+                c->set_write_message(c->file_name_len, text, c->file_name);
+            }
+            fprintf(stderr, "fp: %p\n", c->fp);
+            while (!c->is_confirmed) {
+                c->send_and_confirm(true, true, true);
+            }
+            if (c->fp == NULL) {
+                get_next_file_name(c);
+                continue;
+            }
+            c->set_write_message(0, data, NULL);
+            while (!feof(c->fp)) {
+                fprintf(stderr, "transfer data\n");
+                c->write_byte = 0;
+                c->write_len = fread(c->write_buffer, sizeof(char), BUFF_SIZE, c->fp);
+                if (feof(c->fp)) {
+                    sprintf(c->write_buffer+c->write_len, "%s", c->name);
+                    c->write_len += c->name_len;
+                    c->data_size = 0;
+                }
+                while (!c->is_confirmed) {
+                    c->send_and_confirm(true, true, c->data_size == 0);
+                }
+            }
+            fclose(c->fp);
+            get_next_file_name(c);
+        }
+        fprintf(stderr, "%s end\n", __func__);
         return;
     }
     static void run_play(Connection *c){
