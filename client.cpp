@@ -38,13 +38,10 @@ public:
         // First, we have to send ID to the server
         // The server shouldn't crash, there is no need to handle
         // such cases.
-        fprintf(stderr, "2\n");
         c->set_read_message(text);
         while(!c->is_confirmed) {
-            fprintf(stderr, "read_byte: %d\n", c->read_byte);
             c->read_and_confirm();
         }
-        fprintf(stderr, "name: %s\n", c->read_buffer);
         strcpy(c->name, c->read_buffer); 
         c->name_len = strlen(c->name) + 1;
 
@@ -68,15 +65,12 @@ private:
         c->output_len = c->output_ptr = c->buffer_len = c->file_name_len = 0;
     }
     static void run_none(Connection *c){
-        fprintf(stderr, "run_none\n");
-
         fgets(c->command_buffer, BUFF_SIZE, stdin);
         c->command_buffer[strlen(c->command_buffer)-1] = '\0';
         init_connection(c);
-        fprintf(stderr, "run_none end\n");
+        return;
     }
     static void run_ls(Connection *c){
-        fprintf(stderr, "run_ls\n");
         int read_byte;
 
         c->set_read_message(data);
@@ -84,16 +78,13 @@ private:
             read_byte = c->read_and_confirm();
             output_data(c, stdout, read_byte);
         }
-        fprintf(stderr, "run_ls end\n");
         return;
     }
     static void run_get(Connection *c){
-        fprintf(stderr, "%s\n", __func__);
-
         int read_byte;
         get_next_file_name(c);
-        fprintf(stderr, "%s\n", c->command_token);
         while (c->command_token) {
+            printf("getting file %s......\n", c->command_token);
             read_byte = 0;
             c->set_read_message(text);
 
@@ -103,6 +94,7 @@ private:
             strcpy(c->file_name, c->read_buffer);
             c->file_name_len = read_byte;
             if (c->file_name_len == 1) {
+                printf("The %s doesn't exist.\n", c->command_token);
                 get_next_file_name(c);
                 continue;
             }
@@ -123,20 +115,18 @@ private:
         }
 
         c->fp = NULL;
-        fprintf(stderr, "%s end\n", __func__);
         return;
     }
     static void run_put(Connection *c){
-        fprintf(stderr, "%s\n", __func__);
         char tmp_buf[1] = {'\0'};
         c->set_read_message(text);
         while (!c->is_confirmed) {
             c->read_and_confirm();
         }
-        fprintf(stderr, "phase 1 end\n");
 
         get_next_file_name(c);
         while (c->command_token) {
+            printf("putting %s......\n", c->command_token);
             strcpy(c->file_name, c->command_token);
             c->file_name_len = strlen(c->file_name) + 1;
             c->fp = fopen(c->file_name, "r");
@@ -145,17 +135,16 @@ private:
             } else {
                 c->set_write_message(c->file_name_len, text, c->file_name);
             }
-            fprintf(stderr, "fp: %p\n", c->fp);
             while (!c->is_confirmed) {
                 c->send_and_confirm(true, true, true);
             }
             if (c->fp == NULL) {
+                printf("The %s doesn't exist.\n", c->command_token);
                 get_next_file_name(c);
                 continue;
             }
             c->set_write_message(0, data, NULL);
             while (!feof(c->fp)) {
-                fprintf(stderr, "transfer data\n");
                 c->write_byte = 0;
                 c->write_len = fread(c->write_buffer, sizeof(char), BUFF_SIZE, c->fp);
                 if (feof(c->fp)) {
@@ -174,11 +163,9 @@ private:
             fclose(c->fp);
             get_next_file_name(c);
         }
-        fprintf(stderr, "%s end\n", __func__);
         return;
     }
     static void run_play(Connection *c){
-        fprintf(stderr, "%s\n", __func__);
         int read_byte, img_size;
         char *save_ptr, *token, tmp;
 
@@ -193,12 +180,17 @@ private:
             c->width = atoi(token);
             token = strtok_r(NULL, " ", &save_ptr);
             c->height = atoi(token);
-            if (c->width == -1) {
+            if (c->width < 0) {
+                if (c->width == -1) {
+                    printf("The %s doesn't exist.\n", c->command_token);
+                } else {
+                    printf("The %s is not a mpg file.\n", c->command_token);
+                }
                 get_next_file_name(c);
                 continue;
             }
+            printf("playing the video.\n");
 
-            fprintf(stderr, "width:%d, height:%d\n", c->width, c->height);
             c->img = Mat::zeros(c->height, c->width, CV_8UC3);
             if(!c->img.isContinuous()){
                  c->img = c->img.clone();
@@ -208,18 +200,10 @@ private:
 
             img_size = read_byte = 0;
             while (!c->is_confirmed) {
-                fprintf(stderr, "start\n");
                 read_byte = c->read_and_confirm(true, true, true);
-                fprintf(stderr, "read_byte: %d, img_size: %d, %d, %d\n", read_byte, img_size,
-                                                                         c->is_confirmed, c->name_len);
-                fprintf(stderr, "confirm: %s\n", c->confirm_buffer+c->confirm_len-c->name_len);
-                write(2, c->read_buffer+read_byte-c->name_len, c->name_len);
-                write(2, "\n", 2);
                 if (img_size + read_byte >= c->img_size) {
-                    fprintf(stderr, "1\n");
                     memcpy(c->img.data+img_size, c->read_buffer, c->img_size-img_size);
-                    fprintf(stderr, "2\n");
-                    imshow("2", c->img);
+                    imshow(c->name, c->img);
                     tmp = (char)waitKey(33);
                     if (tmp == 27){
                         tmp = '\0';
@@ -238,7 +222,6 @@ private:
                     memcpy(c->img.data+img_size, c->read_buffer, read_byte);
                     img_size += read_byte;
                 }
-                fprintf(stderr, "end\n");
             }
             c->cap.release();
             destroyAllWindows();
@@ -248,14 +231,12 @@ private:
         while (!c->is_confirmed) {
             c->read_and_confirm();
         }
-        fprintf(stderr, "%s end\n", __func__);
         return;
     }
     int set_routine(Connection *c){
         c->command_len = strlen(c->command_buffer)+1;
         c->set_write_message(c->command_len, text, c->command_buffer);
         init_command_token(c);
-        fprintf(stderr, "command_token: %s\n", c->command_token);
         if (c->command_token == NULL) {
             return -1; 
         } else if (strncmp(c->command_token, "ls", 2) == 0) {
@@ -267,7 +248,7 @@ private:
         } else if (strncmp(c->command_token, "play", 4) == 0) {
             c->routine = &run_play;
         } else {
-            fprintf(stderr, "The command is wrong");
+            printf("Commad format error.");
             return -1;
         }
         c->send_and_confirm();
@@ -278,7 +259,7 @@ int main(int argc , char *argv[]){
     int client_id, port;
     char *server_ip;
     if (argc != 3) {
-        fprintf(stderr, "usage: server $client_id ${ip}:${port}\n");
+        printf("usage: server $client_id ${ip}:${port}\n");
         return 0;
     }
 

@@ -125,7 +125,6 @@ public:
         return tmp;
     }
     int read_and_confirm(bool readable = true, bool writable = true, bool need_confirm = false){
-        fprintf(stderr, "%s\n", __func__);
         int tmp = 0, start;
         char tmp_buf[NAME_SIZE];
         read_byte = 0;
@@ -157,7 +156,6 @@ public:
             }
             if ((content == text && read_buffer[read_byte-1] == '\0') ||
                 (content == data && strncmp(confirm_buffer+start, name, name_len) == 0)) {
-                fprintf(stderr, "get name\n");
                 if (need_confirm) {
                     tmp_buf[0] = '\0';
                     set_write_message(1, content, tmp_buf);
@@ -171,7 +169,6 @@ public:
 
         // confirm stage
         if (writable && write_len != 0) {
-            fprintf(stderr, "read confirm message\n");
             if (send(sockfd, write_buffer+write_byte, write_len-write_byte, MSG_NOSIGNAL) > 0) {
                 is_confirmed = true;
                 return 0;
