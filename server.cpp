@@ -17,7 +17,7 @@ public:
         FD_ZERO(&mask_read_w);
         FD_ZERO(&mask_write_r);
         FD_ZERO(&mask_write_w);
-        max_client_sockfd = -1;
+        max_sockfd = -1;
 
         // Get socket file descriptor
         while((server_sockfd = socket(AF_INET , SOCK_STREAM, 0)) < 0) {
@@ -49,36 +49,35 @@ public:
         bool readable, writable;
         Connection *c;
 
-        read_byte = write_byte = 0;
+        mkdir("b08902062_server_folder", 0755);
+        chdir("b08902062_server_folder");
 
-        if ((client_sockfd = accept(server_sockfd, (struct sockaddr *)&client_addr, (socklen_t*)&client_addr_len)) < 0) {
-        } else{
-            add_client(client_sockfd);
-            int flag = fcntl(server_sockfd, F_GETFL);
-            fcntl(server_sockfd, F_SETFL, flag | O_NONBLOCK);
-        }
+        read_byte = write_byte = 0;
+        FD_SET(server_sockfd, &mask_read_r);
+        max_sockfd = server_sockfd;
         while(true) {
             read_byte = write_byte = 0;
 
-            // Accept the client and get client file descriptor
-            if ((client_sockfd = accept(server_sockfd, (struct sockaddr *)&client_addr, (socklen_t*)&client_addr_len)) < 0) {
-                if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                    perror("accept failed\n");
-                } else{
-                    fprintf(stderr, "No client\n");
-                    errno = 0;
-                }
-            } else{
-                add_client(client_sockfd);
-            }
-
-            memcpy(&mask_read_w, &mask_read_r, sizeof(fd_set));
-            memcpy(&mask_write_w, &mask_write_r, sizeof(fd_set));
-            if (select(max_client_sockfd+1, &mask_read_w, &mask_write_w, NULL, NULL) < 0) {
+            mask_read_w = mask_read_r;
+            mask_write_w = mask_write_r;
+            if (select(max_sockfd+1, &mask_read_w, &mask_write_w, NULL, NULL) < 0) {
                 perror("select failed\n");
                 continue;
             }
-            fprintf(stderr, "select finished\n");
+            if (FD_ISSET(server_sockfd, &mask_read_w)) {
+                // Accept the client and get client file descriptor
+                if ((client_sockfd = accept(server_sockfd, (struct sockaddr *)&client_addr, (socklen_t*)&client_addr_len)) < 0) {
+                    if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                        perror("accept failed\n");
+                    } else{
+                        fprintf(stderr, "No client\n");
+                        errno = 0;
+                    }
+                } else{
+                    add_client(client_sockfd);
+                }
+                continue;
+            }
 
             for(int i = 0; i < (int)clients.size(); i++) {
                 c = clients.front();
@@ -92,8 +91,14 @@ public:
                     break;
                 }
                 clients.pop();
+                clients.push(c);
             }
-            
+            if (!(writable || readable)) {
+                fprintf(stderr, "no client\n");
+                continue;
+            }
+            fprintf(stderr, "c: %d\n", c->sockfd);
+             
             fprintf(stderr, "writable:%d, readable:%d\n", writable, readable);
             fprintf(stderr, "content: %s\n", (c->content == text)? "text": "data");
             if (c->action == transmit) {
@@ -128,7 +133,7 @@ private:
     // Manage client connections with select().
     // The variables with _r prefix records which fds should be noticed.
     // The variables with _w prefix will be passed into select().
-    int max_client_sockfd;
+    int max_sockfd;
     queue<Connection*> clients;
     fd_set mask_read_r, mask_read_w, mask_write_r, mask_write_w;
 
@@ -160,7 +165,7 @@ private:
         c->read_mask = &mask_read_r;
         c->set_write_message(c->name_len, text, c->name);
         clients.push(c);
-        max_client_sockfd = max(client_sockfd, max_client_sockfd);
+        max_sockfd = max(client_sockfd, max_sockfd);
         return;
     }
     void delete_client(){

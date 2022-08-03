@@ -162,9 +162,13 @@ private:
                     sprintf(c->write_buffer+c->write_len, "%s", c->name);
                     c->write_len += c->name_len;
                     c->data_size = 0;
-                }
-                while (!c->is_confirmed) {
-                    c->send_and_confirm(true, true, c->data_size == 0);
+                    while (!c->is_confirmed) {
+                        c->send_and_confirm(true, true, true);
+                    }
+                } else {
+                    while (c->write_byte < c->write_len) {
+                        c->send_and_confirm(true, true, true);
+                    }
                 }
             }
             fclose(c->fp);
@@ -215,7 +219,7 @@ private:
                     fprintf(stderr, "1\n");
                     memcpy(c->img.data+img_size, c->read_buffer, c->img_size-img_size);
                     fprintf(stderr, "2\n");
-                    imshow("Video", c->img);
+                    imshow("2", c->img);
                     tmp = (char)waitKey(33);
                     if (tmp == 27){
                         tmp = '\0';
@@ -254,8 +258,7 @@ private:
         fprintf(stderr, "command_token: %s\n", c->command_token);
         if (c->command_token == NULL) {
             return -1; 
-        }
-        else if (strncmp(c->command_token, "ls", 2) == 0) {
+        } else if (strncmp(c->command_token, "ls", 2) == 0) {
             c->routine = &run_ls;
         } else if (strncmp(c->command_token, "put", 3) == 0) {
             c->routine = &run_put;
@@ -264,7 +267,7 @@ private:
         } else if (strncmp(c->command_token, "play", 4) == 0) {
             c->routine = &run_play;
         } else {
-            fprintf(stderr, "The command is wrong\n");
+            fprintf(stderr, "The command is wrong");
             return -1;
         }
         c->send_and_confirm();
