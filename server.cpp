@@ -1,5 +1,7 @@
 #include "hw2.h"
 #include <fcntl.h>
+#include <opencv2/videoio.hpp>
+#include <opencv2/videoio/videoio_c.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -144,6 +146,8 @@ private:
     }
     void add_client(int client_sockfd){
         Connection *c = new Connection(client_sockfd);
+        int flag = fcntl(server_sockfd, F_GETFL);
+        fcntl(client_sockfd, F_SETFL, flag | O_NONBLOCK);
         snprintf(c->name, NAME_SIZE, "NeVeR_LosEs%d", rand());
         c->action = transmit;
         c->content = text;
@@ -350,6 +354,87 @@ private:
         return;
     }
     static void run_play(Connection *c){
+        fprintf(stderr, "%s\n", __func__);
+        if (c->file_name_len == 0) {
+            get_next_file_name(c);
+            if (c->command_token == NULL) {
+                c->is_confirmed = true;
+            } else {
+                c->file_name_len = strlen(c->command_token)+1;
+                strcpy(c->file_name, c->command_token);
+                if (access(c->file_name, F_OK) == 0) {
+                    c->cap.open(c->file_name);
+                    c->width = c->cap.get(CV_CAP_PROP_FRAME_WIDTH);
+                    c->height = c->cap.get(CV_CAP_PROP_FRAME_HEIGHT);
+                    c->img = Mat::zeros(c->height, c->width, CV_8UC3);    
+                    c->img_size = c->img.total() * c->img.elemSize();
+                    if(!c->img.isContinuous()){
+                        c->img = c->img.clone();
+                    }
+                } else {
+                    c->width = c->height = -1;
+                }
+                char tmp_buf[NAME_SIZE];
+                sprintf(tmp_buf, "%d %d", c->width, c->height);
+                c->set_write_message(strlen(tmp_buf)+1, text, tmp_buf);
+            }
+        }
+        if (c->content == data) {
+            fprintf(stderr, "trasmit_byte: %d\n", c->transmit_byte);
+            if (c->write_len != 0) { 
+                int read_byte = read(c->sockfd, c->read_buffer, 1); 
+                fprintf(stderr, "read_byte: %d\n", read_byte);
+                if (read_byte > 0) {
+                    c->set_write_message(c->name_len, data, c->name);
+                    c->data_size = 0;
+                    return;
+                }
+            }
+            if (c->transmit_byte == c->img_size) {
+                if (c->cap.read(c->img)) {
+                    c->write_len = c->write_byte = c->transmit_byte = 0;
+                } else {
+                    sprintf(c->write_buffer, "%s", c->name);
+                    c->write_len = c->name_len;
+                    c->transmit_byte = c->write_byte = c->data_size = 0;
+                }
+            }
+            if (c->write_byte == c->write_len && c->data_size != 0) {
+                c->write_len = min(BUFF_SIZE, c->img_size - c->transmit_byte);
+                c->write_byte = 0;
+                memcpy(c->write_buffer, c->img.data+c->transmit_byte, c->write_len);
+                c->transmit_byte += c->write_len;
+            }
+        }
+        
+        if (!c->is_confirmed) {
+            return;
+        }
+        if (c->content == text) {
+            if (!c->need_confirm) {
+                init_connection(c);
+            }
+            else if (c->command_token == NULL) {
+                char tmp = '\0';
+                c->set_write_message(1, text, &tmp);
+                c->need_confirm = false;
+            } else {
+                if (c->height != -1) {
+                    c->transmit_byte = 0;
+                    c->set_write_message(0, data, NULL);
+                } else {
+                    c->file_name_len = 0;
+                    c->need_confirm = true;
+                    c->set_write_message(0, text, NULL);
+                }
+            }
+        } else if (c->content == data) {
+            c->cap.release();
+            c->file_name_len = 0;
+            c->need_confirm = true;
+            c->set_write_message(0, text, NULL);
+        }
+        fprintf(stderr, "%s end\n", __func__);
     }
     static int set_routine(Connection *c){
         init_command_token(c);
@@ -389,6 +474,9 @@ private:
             c->set_write_message(0, text, NULL);
         } else if (c->routine == &run_play) {
             c->cap.release();
+            c->file_name_len = 0;
+            c->need_confirm = true;
+            c->set_write_message(0, text, NULL);
         }
         fprintf(stderr, "setup_mission end\n");
     }

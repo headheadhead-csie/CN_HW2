@@ -33,6 +33,7 @@ int main(int argc, char *argv[]){
         
         // Get the size of a frame in bytes 
         int imgSize = server_img.total() * server_img.elemSize();
+        printf("%d\n", imgSize);
         
         // Allocate a buffer to load the frame (there would be 2 buffers in the world of the Internet)
         uchar buffer[imgSize];

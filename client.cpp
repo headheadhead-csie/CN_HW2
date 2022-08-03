@@ -1,4 +1,5 @@
 #include "hw2.h"
+#include <opencv2/highgui.hpp>
 
 #define PORT 8787
 #define ERR_EXIT(a){ perror(a); exit(1); }
@@ -173,6 +174,77 @@ private:
         return;
     }
     static void run_play(Connection *c){
+        fprintf(stderr, "%s\n", __func__);
+        int read_byte, img_size;
+        char *save_ptr, *token, tmp;
+
+        get_next_file_name(c);
+        while (c->command_token) {
+            img_size = read_byte = 0;
+            c->set_read_message(text);
+            while (!c->is_confirmed) {
+                read_byte += c->read_and_confirm(true, true, true);
+            }
+            token = strtok_r(c->read_buffer, " ", &save_ptr);
+            c->width = atoi(token);
+            token = strtok_r(NULL, " ", &save_ptr);
+            c->height = atoi(token);
+            if (c->width == -1) {
+                get_next_file_name(c);
+                continue;
+            }
+
+            fprintf(stderr, "width:%d, height:%d\n", c->width, c->height);
+            c->img = Mat::zeros(c->height, c->width, CV_8UC3);
+            if(!c->img.isContinuous()){
+                 c->img = c->img.clone();
+            }
+            c->img_size = c->img.total() * c->img.elemSize();
+            c->set_read_message(data);
+
+            img_size = read_byte = 0;
+            while (!c->is_confirmed) {
+                fprintf(stderr, "start\n");
+                read_byte = c->read_and_confirm(true, true, true);
+                fprintf(stderr, "read_byte: %d, img_size: %d, %d, %d\n", read_byte, img_size,
+                                                                         c->is_confirmed, c->name_len);
+                fprintf(stderr, "confirm: %s\n", c->confirm_buffer+c->confirm_len-c->name_len);
+                write(2, c->read_buffer+read_byte-c->name_len, c->name_len);
+                write(2, "\n", 2);
+                if (img_size + read_byte >= c->img_size) {
+                    fprintf(stderr, "1\n");
+                    memcpy(c->img.data+img_size, c->read_buffer, c->img_size-img_size);
+                    fprintf(stderr, "2\n");
+                    imshow("Video", c->img);
+                    tmp = (char)waitKey(33);
+                    if (tmp == 27){
+                        tmp = '\0';
+                        c->set_write_message(1, text, &tmp);
+                        c->send_and_confirm();
+                        c->set_read_message(data);
+                        while (!c->is_confirmed) {
+                            c->read_and_confirm(true, true, true);
+                        }
+                        break;        
+                    }
+                    memcpy(c->img.data, c->read_buffer + c->img_size-img_size,
+                           img_size + read_byte - c->img_size);
+                    img_size = img_size + read_byte - c->img_size;
+                } else {
+                    memcpy(c->img.data+img_size, c->read_buffer, read_byte);
+                    img_size += read_byte;
+                }
+                fprintf(stderr, "end\n");
+            }
+            c->cap.release();
+            destroyAllWindows();
+            get_next_file_name(c);
+        }
+        c->set_read_message(text);
+        while (!c->is_confirmed) {
+            c->read_and_confirm();
+        }
+        fprintf(stderr, "%s end\n", __func__);
         return;
     }
     int set_routine(Connection *c){

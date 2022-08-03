@@ -40,14 +40,18 @@ public:
         confirm_len,
         data_size,
         file_name_len,
+        height,
+        img_size,
         name_len,
         output_ptr,
         output_len,
         read_byte,
         read_len,
         sockfd,
+        transmit_byte,
         write_len,
-        write_byte;
+        write_byte,
+        width;
     char buffer[2 * BUFF_SIZE],
          command_buffer[2 * BUFF_SIZE],
          confirm_buffer[NAME_SIZE],
@@ -65,6 +69,7 @@ public:
     DIR* dp;
     struct dirent *dir;
     VideoCapture cap;
+    Mat img;
     void (*routine)(Connection *);
     fd_set *write_mask,
            *read_mask;
@@ -89,7 +94,7 @@ public:
         return;
     }
     int send_and_confirm(bool readable = true, bool writable = true, bool need_confirm = false){
-        int tmp = 0, old;
+        int tmp = 0;
         if (writable && write_len != 0) {
             tmp = send(sockfd, write_buffer+write_byte, write_len-write_byte, MSG_NOSIGNAL);
             if (tmp <= 0){
@@ -99,9 +104,7 @@ public:
             if ((content == text && write_byte >= write_len) ||
                 (content == data && data_size == 0)) {
                 if (need_confirm) {
-                    old = write_byte;
                     set_read_message(content);
-                    write_byte = old;
                 } else {
                     is_confirmed = true;
                 }
@@ -143,7 +146,7 @@ public:
                 } else {
                     start = read_byte + confirm_len - NAME_SIZE;
                     memcpy(tmp_buf, confirm_buffer + start , confirm_len - start);
-                    memcpy(tmp_buf, read_buffer, read_byte);
+                    memcpy(tmp_buf + confirm_len - start, read_buffer, read_byte);
                     memcpy(confirm_buffer, tmp_buf, NAME_SIZE);
                     confirm_len = NAME_SIZE;
                 }
