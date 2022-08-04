@@ -24,7 +24,7 @@
 #include <opencv2/opencv.hpp>
 
 #define ERR_EXIT(a){ perror(a); exit(1); }
-#define BUFF_SIZE 4096
+#define BUFF_SIZE 1048576
 #define NAME_SIZE 64
 using namespace cv;
 using std::set;
@@ -222,5 +222,6 @@ inline void output_data(Connection *c, FILE *fp, int read_byte){
     while (c->output_ptr + c->name_len < c->buffer_len) {
         c->output_buffer[c->output_len++] = c->buffer[(c->output_ptr++)%(2*BUFF_SIZE)];
     }
+    c->output_ptr %= 2*BUFF_SIZE;
     fwrite(c->output_buffer, sizeof(char), c->output_len, fp);
 }

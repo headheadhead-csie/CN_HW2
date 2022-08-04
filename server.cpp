@@ -66,14 +66,15 @@ public:
             }
             if (FD_ISSET(server_sockfd, &mask_read_w)) {
                 // Accept the client and get client file descriptor
-                if ((client_sockfd = accept(server_sockfd, (struct sockaddr *)&client_addr, (socklen_t*)&client_addr_len)) < 0) {
+                if ((client_sockfd = accept(server_sockfd, (struct sockaddr *)&client_addr,
+                    (socklen_t*)&client_addr_len)) < 0) {
                     if (errno != EAGAIN && errno != EWOULDBLOCK) {
                         perror("accept failed\n");
                     } else{
                         errno = 0;
                     }
                 } else{
-                    printf("%d\n", client_sockfd);
+                    printf("new connection: %d\n", client_sockfd);
                     add_client(client_sockfd);
                 }
                 continue;
@@ -195,8 +196,6 @@ private:
         return;
     }
     static void run_ls(Connection *c){
-        char tmp_buf[1] = {'\0'};
-
         // prepare_buffer
         if (c->action == transmit) {
             if (c->write_byte == c->write_len) {
@@ -371,8 +370,8 @@ private:
                     c->data_size = 0;
                     return;
                 }
-            }
-            if (c->transmit_byte == c->img_size) {
+            } 
+            if (c->transmit_byte == c->img_size && c->write_byte == c->write_len) {
                 if (c->cap.read(c->img)) {
                     c->write_len = c->write_byte = c->transmit_byte = 0;
                 } else {

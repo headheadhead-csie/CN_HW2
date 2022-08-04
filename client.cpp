@@ -29,7 +29,7 @@ public:
         close(sockfd);
     }
     void run(){
-        char tmp_buf[BUFF_SIZE];
+        char tmp_buf[NAME_SIZE];
         sprintf(tmp_buf, "b08902062_%d_client_folder", id);
         mkdir(tmp_buf, 0755);
         chdir(tmp_buf);
@@ -84,7 +84,6 @@ private:
         int read_byte;
         get_next_file_name(c);
         while (c->command_token) {
-            printf("getting file %s......\n", c->command_token);
             read_byte = 0;
             c->set_read_message(text);
 
@@ -98,7 +97,7 @@ private:
                 get_next_file_name(c);
                 continue;
             }
-
+            printf("getting file %s......\n", c->command_token);
             c->fp = fopen(c->file_name, "w");
             c->set_read_message(data);
             while (!c->is_confirmed) {
@@ -126,7 +125,6 @@ private:
 
         get_next_file_name(c);
         while (c->command_token) {
-            printf("putting %s......\n", c->command_token);
             strcpy(c->file_name, c->command_token);
             c->file_name_len = strlen(c->file_name) + 1;
             c->fp = fopen(c->file_name, "r");
@@ -143,6 +141,7 @@ private:
                 get_next_file_name(c);
                 continue;
             }
+            printf("putting %s......\n", c->command_token);
             c->set_write_message(0, data, NULL);
             while (!feof(c->fp)) {
                 c->write_byte = 0;
@@ -202,8 +201,18 @@ private:
             while (!c->is_confirmed) {
                 read_byte = c->read_and_confirm(true, true, true);
                 if (img_size + read_byte >= c->img_size) {
-                    memcpy(c->img.data+img_size, c->read_buffer, c->img_size-img_size);
-                    imshow(c->name, c->img);
+                    int transfer_size = 0, read_ptr = 0;
+                    const int total_size = img_size + read_byte;
+                    while (total_size - transfer_size >= c->img_size) {
+                        memcpy(c->img.data+img_size, c->read_buffer+read_ptr,
+                               c->img_size-img_size);
+                        imshow(c->name, c->img);
+                        read_ptr += c->img_size - img_size;
+                        transfer_size += c->img_size;
+                        img_size = 0;
+                    }
+                    memcpy(c->img.data, c->read_buffer+read_ptr, total_size-transfer_size);
+                    img_size = total_size-transfer_size;
                     tmp = (char)waitKey(33);
                     if (tmp == 27){
                         tmp = '\0';
@@ -215,9 +224,6 @@ private:
                         }
                         break;        
                     }
-                    memcpy(c->img.data, c->read_buffer + c->img_size-img_size,
-                           img_size + read_byte - c->img_size);
-                    img_size = img_size + read_byte - c->img_size;
                 } else {
                     memcpy(c->img.data+img_size, c->read_buffer, read_byte);
                     img_size += read_byte;
