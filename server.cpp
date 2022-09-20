@@ -9,9 +9,9 @@
 
 using namespace std;
 
-class Server{
+class Server {
 public:
-    Server(int port = PORT){
+    Server(int port = PORT) {
         // Inititlaize fd_set used in select()
         FD_ZERO(&mask_read_r);
         FD_ZERO(&mask_read_w);
@@ -40,10 +40,10 @@ public:
             perror("listen failed\n");
         }
     }
-    ~Server(){
+    ~Server() {
         close(server_sockfd);
     }
-    void run(){
+    void run() {
         int client_sockfd;
         int read_byte, write_byte;
         bool readable, writable;
@@ -127,7 +127,7 @@ private:
     queue<Connection*> clients;
     fd_set mask_read_r, mask_read_w, mask_write_r, mask_write_w;
 
-    static void init_connection(Connection *c){
+    static void init_connection(Connection *c) {
         c->action = receive;
         c->is_confirmed = false;
         c->routine = run_none;
@@ -139,7 +139,7 @@ private:
         c->cap.release();
         c->set_read_message(text);
     }
-    void add_client(int client_sockfd){
+    void add_client(int client_sockfd) {
         Connection *c = new Connection(client_sockfd);
         int flag = fcntl(server_sockfd, F_GETFL);
         fcntl(client_sockfd, F_SETFL, flag | O_NONBLOCK);
@@ -158,7 +158,7 @@ private:
         max_sockfd = max(client_sockfd, max_sockfd);
         return;
     }
-    void delete_client(){
+    void delete_client() {
         Connection *c = clients.front();
         clients.pop();
         FD_CLR(c->sockfd, &mask_read_r);
@@ -178,7 +178,7 @@ private:
         Sometimes it may set c->{write/read}_{byte/len}, too,
         which can be regarded as initialization.
     */  
-    static void run_none(Connection *c){
+    static void run_none(Connection *c) {
         // prepare_buffer
 
         // update the state of c
@@ -195,7 +195,7 @@ private:
         }
         return;
     }
-    static void run_ls(Connection *c){
+    static void run_ls(Connection *c) {
         // prepare_buffer
         if (c->action == transmit) {
             if (c->write_byte == c->write_len) {
@@ -220,7 +220,7 @@ private:
         init_connection(c);
         return;
     }
-    static void run_get(Connection *c){
+    static void run_get(Connection *c) {
         char tmp_buf[1] = {'\0'};
         // prepare_buffer
         if (c->fp == NULL && c->file_name_len == 0 && c->need_confirm) {
@@ -277,7 +277,7 @@ private:
         }
         return;
     }
-    static void run_put(Connection *c){
+    static void run_put(Connection *c) {
         char tmp_buf[1] = {'\0'};
         // prepare buffer
         if (c->action == transmit && !c->is_confirmed) {
@@ -332,7 +332,7 @@ private:
         }
         return;
     }
-    static void run_play(Connection *c){
+    static void run_play(Connection *c) {
         if (c->file_name_len == 0) {
             get_next_file_name(c);
             if (c->command_token == NULL) {
@@ -341,13 +341,13 @@ private:
                 c->file_name_len = strlen(c->command_token)+1;
                 strcpy(c->file_name, c->command_token);
                 if ((access(c->file_name, F_OK) == 0 && c->file_name_len >= 5) &&
-                    strncmp(c->file_name+c->file_name_len-5, ".mpg", 4) == 0){
+                    strncmp(c->file_name+c->file_name_len-5, ".mpg", 4) == 0) {
                     c->cap.open(c->file_name);
                     c->width = c->cap.get(CV_CAP_PROP_FRAME_WIDTH);
                     c->height = c->cap.get(CV_CAP_PROP_FRAME_HEIGHT);
                     c->img = Mat::zeros(c->height, c->width, CV_8UC3);    
                     c->img_size = c->img.total() * c->img.elemSize();
-                    if(!c->img.isContinuous()){
+                    if(!c->img.isContinuous()) {
                         c->img = c->img.clone();
                     }
                 } else {
@@ -416,7 +416,7 @@ private:
             c->set_write_message(0, text, NULL);
         }
     }
-    static int set_routine(Connection *c){
+    static int set_routine(Connection *c) {
         init_command_token(c);
         if (strncmp(c->command_token, "ls", 2) == 0) {
             c->routine = &run_ls;
@@ -432,7 +432,7 @@ private:
         }
         return 0;
     }
-    static void setup_mission(Connection *c){
+    static void setup_mission(Connection *c) {
         c->action = transmit;
         if (c->routine == &run_ls) {
             c->dp = opendir(".");
@@ -456,7 +456,7 @@ private:
         }
     }
 };
-int main(int argc, char *argv[]){
+int main(int argc, char *argv[]) {
     int port;
     if (argc != 2) {
         printf("usage: server ${port}\n");

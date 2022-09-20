@@ -23,8 +23,8 @@
 
 #include <opencv2/opencv.hpp>
 
-#define ERR_EXIT(a){ perror(a); exit(1); }
-#define BUFF_SIZE 1048576
+#define ERR_EXIT(a) { perror(a); exit(1); }
+#define BUFF_SIZE 65536
 #define NAME_SIZE 64
 using namespace cv;
 using std::set;
@@ -33,7 +33,7 @@ enum Content{video, data, text};
 enum Action{transmit, receive, input};
 enum Command{_none, _ls, _put, _get, _play};
 enum Identity{server, client};
-class Connection{
+class Connection {
 public:
     int buffer_len,
         command_len,
@@ -79,10 +79,10 @@ public:
     Command command;
     Identity identity;
 
-    Connection(): fp(NULL), dp(NULL), dir(NULL), write_mask(NULL), read_mask(NULL){}
-    Connection(int sockfd):sockfd(sockfd), fp(NULL), dp(NULL), dir(NULL),
-                           write_mask(NULL), read_mask(NULL){}
-    ~Connection(){
+    Connection(): fp(NULL), dp(NULL), dir(NULL), write_mask(NULL), read_mask(NULL) {}
+    Connection(int sockfd): sockfd(sockfd), fp(NULL), dp(NULL), dir(NULL),
+                            write_mask(NULL), read_mask(NULL) {}
+    ~Connection() {
         close(sockfd);
         if (fp != NULL) {
             fclose(fp);
@@ -93,11 +93,11 @@ public:
         cap.release();
         return;
     }
-    int send_and_confirm(bool readable = true, bool writable = true, bool need_confirm = false){
+    int send_and_confirm(bool readable = true, bool writable = true, bool need_confirm = false) {
         int tmp = 0;
         if (writable && write_len != 0) {
             tmp = send(sockfd, write_buffer+write_byte, write_len-write_byte, MSG_NOSIGNAL);
-            if (tmp <= 0){
+            if (tmp <= 0) {
                 return -1;
             }
             write_byte += tmp;
@@ -115,7 +115,7 @@ public:
         // confirm stage
         if (readable && write_len == 0 && need_confirm) {
             tmp = read(sockfd, read_buffer, BUFF_SIZE);
-            if (tmp > 0){
+            if (tmp > 0) {
                 is_confirmed = true;
                 return 0;
             } else {
@@ -124,7 +124,7 @@ public:
         }
         return tmp;
     }
-    int read_and_confirm(bool readable = true, bool writable = true, bool need_confirm = false){
+    int read_and_confirm(bool readable = true, bool writable = true, bool need_confirm = false) {
         int tmp = 0, start;
         char tmp_buf[NAME_SIZE];
         read_byte = 0;
@@ -178,7 +178,7 @@ public:
         }
         return tmp;
     }
-    inline void set_write_message(int write_len, Content content, char *message){
+    inline void set_write_message(int write_len, Content content, char *message) {
         this->write_len = write_len;
         this->read_byte = this->write_byte = 0;
         this->content = content;
@@ -196,7 +196,7 @@ public:
             FD_SET(sockfd, write_mask);
         }
     }
-    inline void set_read_message(Content content){
+    inline void set_read_message(Content content) {
         this->content = content;
         this->is_confirmed = false;
         this->confirm_len = this->write_len = this->write_byte = this->read_byte = 0;
@@ -208,13 +208,13 @@ public:
         }
     }
 };
-inline void init_command_token(Connection *c){
+inline void init_command_token(Connection *c) {
     c->command_token = strtok_r(c->command_buffer, " ", &c->command_save_ptr);
 }
-inline void get_next_file_name(Connection *c){
+inline void get_next_file_name(Connection *c) {
     c->command_token = strtok_r(NULL, " ", &c->command_save_ptr);
 }
-inline void output_data(Connection *c, FILE *fp, int read_byte){
+inline void output_data(Connection *c, FILE *fp, int read_byte) {
     for (int i = 0; i < read_byte; i++) {
         c->buffer[(c->buffer_len++)%(2*BUFF_SIZE)] = c->read_buffer[i];
     }

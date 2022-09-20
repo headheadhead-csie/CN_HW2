@@ -2,10 +2,10 @@
 #include <opencv2/highgui.hpp>
 
 #define PORT 8787
-#define ERR_EXIT(a){ perror(a); exit(1); }
-class Client{
+#define ERR_EXIT(a) { perror(a); exit(1); }
+class Client {
 public:
-    Client(int port = 8787, char* server_ip = NULL, int client_id = 1){
+    Client(int port = 8787, char* server_ip = NULL, int client_id = 1) {
         id = client_id;
 
         // Get socket file descriptor
@@ -25,10 +25,10 @@ public:
 
         return;
     }
-    ~Client(){
+    ~Client() {
         close(sockfd);
     }
-    void run(){
+    void run() {
         char tmp_buf[NAME_SIZE];
         sprintf(tmp_buf, "b08902062_%d_client_folder", id);
         mkdir(tmp_buf, 0755);
@@ -57,20 +57,20 @@ private:
     int sockfd, id;
     struct sockaddr_in addr;
     Connection *c;
-    static void init_connection(Connection *c){
+    static void init_connection(Connection *c) {
         c->action = receive;
         c->is_confirmed = false;
         c->routine = run_none;
         c->need_confirm = false;
         c->output_len = c->output_ptr = c->buffer_len = c->file_name_len = 0;
     }
-    static void run_none(Connection *c){
+    static void run_none(Connection *c) {
         fgets(c->command_buffer, BUFF_SIZE, stdin);
         c->command_buffer[strlen(c->command_buffer)-1] = '\0';
         init_connection(c);
         return;
     }
-    static void run_ls(Connection *c){
+    static void run_ls(Connection *c) {
         int read_byte;
 
         c->set_read_message(data);
@@ -80,7 +80,7 @@ private:
         }
         return;
     }
-    static void run_get(Connection *c){
+    static void run_get(Connection *c) {
         int read_byte;
         get_next_file_name(c);
         while (c->command_token) {
@@ -116,7 +116,7 @@ private:
         c->fp = NULL;
         return;
     }
-    static void run_put(Connection *c){
+    static void run_put(Connection *c) {
         char tmp_buf[1] = {'\0'};
         c->set_read_message(text);
         while (!c->is_confirmed) {
@@ -164,7 +164,7 @@ private:
         }
         return;
     }
-    static void run_play(Connection *c){
+    static void run_play(Connection *c) {
         int read_byte, img_size;
         char *save_ptr, *token, tmp;
 
@@ -191,7 +191,7 @@ private:
             printf("playing the video.\n");
 
             c->img = Mat::zeros(c->height, c->width, CV_8UC3);
-            if(!c->img.isContinuous()){
+            if(!c->img.isContinuous()) {
                  c->img = c->img.clone();
             }
             c->img_size = c->img.total() * c->img.elemSize();
@@ -214,7 +214,7 @@ private:
                     memcpy(c->img.data, c->read_buffer+read_ptr, total_size-transfer_size);
                     img_size = total_size-transfer_size;
                     tmp = (char)waitKey(33);
-                    if (tmp == 27){
+                    if (tmp == 27) {
                         tmp = '\0';
                         c->set_write_message(1, text, &tmp);
                         c->send_and_confirm();
@@ -239,7 +239,7 @@ private:
         }
         return;
     }
-    int set_routine(Connection *c){
+    int set_routine(Connection *c) {
         c->command_len = strlen(c->command_buffer)+1;
         c->set_write_message(c->command_len, text, c->command_buffer);
         init_command_token(c);
@@ -261,7 +261,7 @@ private:
         return 0;
     }
 };
-int main(int argc , char *argv[]){
+int main(int argc , char *argv[]) {
     int client_id, port;
     char *server_ip;
     if (argc != 3) {
